@@ -1,7 +1,8 @@
 import mongoose, { Document, Schema, Model } from 'mongoose';
+import { IVideo } from './video.interface';
 // import { IVideo } from './video.interface';
 // Video şeması
-const videoSchema = new Schema(
+const videoSchema = new Schema<IVideo>(
     {
         video_link: {
             type: String,
@@ -59,6 +60,6 @@ const videoSchema = new Schema(
 );
 
 // Video modelini oluşturma
-const VideoModel = mongoose.model('Video', videoSchema);
+const VideoModel = mongoose.model<IVideo>('Video', videoSchema);
 
 export default VideoModel;

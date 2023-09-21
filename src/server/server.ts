@@ -1,5 +1,6 @@
 // import "../db/mongo.js";
 import "../db/globalMongo.js"
+// import "../test/math.test.js"
 import express, { Application, Request, Response } from "express";
 import cors from "cors";
 import path from "path"; 

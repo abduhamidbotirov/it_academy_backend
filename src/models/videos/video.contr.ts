@@ -6,9 +6,13 @@ import { uploadVideo } from '../../utils/uploadVideo.js';
 import { getUserId } from '../../utils/userId.js';
 import { ObjectId } from 'mongoose';
 import { logger } from '../../utils/winston.js';
+import { getRedisData, setRedisData, updateRedisData } from '../../db/redistGlobal.js';
+// redist start
+let vide_key = process.env.video_key as string || "videos"
+let video_keyById = process.env.video_keyById as string || "videosId"
 class PostController {
     // admin
-    async creatVideo(req: Request, res: Response) {
+    async CreatVideo(req: Request, res: Response) {
         try {
             const userId: string | ObjectId = getUserId(req);
             // check body
@@ -19,6 +23,11 @@ class PostController {
             const video = new VideoModel({ video_link, title, description, search, admin: userId });
             // savedModel
             let savedVideo = await video.save();
+            // Barcha Category ma'lumotlarini qayta yozish
+            const videos = await VideoModel.find();
+            await setRedisData(vide_key, videos);
+            // Yangi ma'lumotni qayta Redisga yozish
+            await setRedisData(`${video_keyById}:${savedVideo._id}`, savedVideo);
             logger.log({
                 level: 'info',
                 message: 'Yangi video saqlandi',
@@ -35,16 +44,22 @@ class PostController {
         }
     }
     // user
-    async getVideos(req: Request, res: Response) {
+    async GetVideos(req: Request, res: Response) {
         try {
+            const cachedVideos = await getRedisData(vide_key);
+            if (cachedVideos) {
+                res.status(200).json({ success: true, data: cachedVideos });
+                return;
+            }
             const videos = await VideoModel.find({}, { admin: 0 }).populate('cat_id').exec();
+            await setRedisData(vide_key, videos)
             res.status(200).json({ success: true, data: videos });
         } catch (error: any) {
             return handleError(res, error)
         }
     }
     // admin
-    async getVideosByAdmin(req: Request, res: Response) {
+    async GetVideosByAdmin(req: Request, res: Response) {
         try {
             const videos = await VideoModel.find({})
                 .populate('admin', 'cat_id') // Replace with the fields you want to populate
@@ -54,22 +69,28 @@ class PostController {
             return handleError(res, error)
         }
     }
-    async getByIdVideo(req: Request, res: Response) {
+    async GetByIdVideo(req: Request, res: Response) {
         const videoId = req.params.id;
         try {
+            const cachedVideo = await getRedisData(`${video_keyById}:${videoId}`);
+            if (cachedVideo) {
+                res.status(200).json({ success: true, data: cachedVideo });
+                return;
+            }
             const video = await VideoModel.findById(videoId)
                 .populate('comments', 'cat_id') // Assuming 'comments' is the field holding comment IDs
                 .exec();
             if (!video) {
                 return res.status(404).json({ success: false, message: 'Video not found' });
             }
+            await setRedisData(`${video_keyById}:${videoId}`, video);
             res.status(200).json({ success: true, data: video });
         } catch (error: any) {
             return handleError(res, error)
         }
     }
     // admin
-    async getByIdVideoByAdmin(req: Request, res: Response) {
+    async GetByIdVideoByAdmin(req: Request, res: Response) {
         const videoId = req.params.id;
         try {
             const video = await VideoModel.findById(videoId)
@@ -83,7 +104,7 @@ class PostController {
             return handleError(res, error)
         }
     }
-    async getLikesVideo(req: Request, res: Response) {
+    async GetLikesVideo(req: Request, res: Response) {
         try {
             const videos = await VideoModel.find({}).sort({ like: -1 }).exec();
             res.status(200).json({ success: true, data: videos });
@@ -91,7 +112,7 @@ class PostController {
             return handleError(res, error)
         }
     }
-    async getSearchVideo(req: Request, res: Response) {
+    async GetSearchVideo(req: Request, res: Response) {
         const searchQuery = req.query.search as string;
         try {
             const videos = await VideoModel.find({ search: { $in: searchQuery } }).exec();
@@ -100,7 +121,7 @@ class PostController {
             return handleError(res, error)
         }
     }
-    async likePatchVideo(req: Request, res: Response) {
+    async LikePatchVideo(req: Request, res: Response) {
         try {
             const { id } = req.params;
             const video = await VideoModel.findById(id);
@@ -135,8 +156,10 @@ class PostController {
                     message: userId + "  likeni kamayishiga sabab bo'lgan userId",
                 });
             }
+            // After updating the video data in the database
 
             let savedVideo = await video.save();
+            await setRedisData(`${video_keyById}:${id}`, savedVideo);
 
             res.status(201).send({
                 success: true,
@@ -146,7 +169,7 @@ class PostController {
             return handleError(res, error)
         }
     }
-    async dislikePatchVideo(req: Request, res: Response) {
+    async DislikePatchVideo(req: Request, res: Response) {
         try {
             const { id } = req.params;
             const video = await VideoModel.findById(id);
@@ -184,6 +207,8 @@ class PostController {
             }
 
             let savedvideo = await video.save();
+            await setRedisData(`${video_keyById}:${id}`, savedvideo);
+
             res.status(201).send({
                 success: true,
                 data: savedvideo
@@ -193,7 +218,7 @@ class PostController {
         }
     }
     // admin
-    async updateVideo(req: Request, res: Response) {
+    async UpdateVideo(req: Request, res: Response) {
         try {
             // Verify user token
             const token: string | undefined = req.headers.token as string | undefined;
@@ -223,6 +248,9 @@ class PostController {
             existingVideo.video_link = videoLink || existingVideo.video_link;
             // Save the updated video
             const updatedVideo = await existingVideo.save();
+            // After saving the updated video
+            await setRedisData(`${video_keyById}:${videoId}`, updatedVideo);
+
             logger.log({
                 level: 'info',
                 message: 'video update qilinda va saqlandi',
@@ -239,7 +267,7 @@ class PostController {
         }
     }
     // admin
-    async deleteVideo(req: Request, res: Response) {
+    async DeleteVideo(req: Request, res: Response) {
         try {
             // Verify user token
             const userId: string | ObjectId = getUserId(req);
@@ -256,6 +284,9 @@ class PostController {
             }
             // Delete the video
             let deleteVideo = await existingVideo.deleteOne();
+            // After deleting the video from the database
+            await updateRedisData(`${video_keyById}:${videoId}`, null);
+
             logger.log({
                 level: 'info',
                 message: 'video o\'chirilid va saqlandi',
